@@ -13,7 +13,7 @@ def send_msg(sock, msg):
     msglen = len(msg)
     while totalsent < msglen:
         sent = sock.send(msg[totalsent:])
-        print 'sent', sent, ' bytes'
+        #print 'sent', sent, ' bytes'
         if sent == 0:
             raise RuntimeError("socket connection broken")
         totalsent = totalsent + sent
@@ -30,8 +30,8 @@ except socket.error as msg:
     print 'Error starting server', msg
     sys.exit(1)
 
-# generate 1M of data
-data = gen_random_data(1024000)
+# generate 20M of data
+data = gen_random_data(1024000 * 20)
 print 'Server init done !'
 
 while 1:
@@ -39,7 +39,7 @@ while 1:
     print 'Connected by', addr
     print 'sent buffer is', conn.getsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF)
     sent = 0
-    chunkSize = len(data) #1024 * 10
+    chunkSize = len(data)
     while (sent < len(data)):
         try:
             sent += send_msg(conn, data[sent:sent + chunkSize])
