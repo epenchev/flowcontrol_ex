@@ -83,7 +83,7 @@ def download_ex_flowcontrol(host, request):
                     
                     #s.setsockopt(socket.IPPROTO_TCP, socket.TCP_WINDOW_CLAMP, twin)
                 if not data:
-                    print 'Received total', total ,'from', host
+                    print 'Received total', total ,'bytes from', host
                     print 'Download completed in', time.time() - start, 'seconds'
                     break
             s.close()
