@@ -36,7 +36,7 @@ def download(host, request):
                 data = s.recv(10000)
                 total += len(data)
                 if not data:
-                    print 'Received total', total ,'from', host
+                    print 'Received total', total ,'bytes from', host
                     print 'Download completed in', time.time() - start, 'seconds'
                     break
             
