@@ -5,9 +5,9 @@ from collections import OrderedDict
 from optparse import OptionParser
 
 targets = OrderedDict()
-#targets['download.microsoft.com'] = 'GET /download/2/9/4/29413F94-2ACF-496A-AD9C-8F43598510B7/EIE11_EN-US_MCM_WIN764.EXE HTTP/1.1\r\nHost: download.microsoft.com\r\nConnection: close\r\n\r\n' 
-#targets['ubuntu.ipacct.com'] = 'GET /releases/trusty/ubuntu-14.04.4-server-amd64.iso HTTP/1.1\r\nHost: ubuntu.ipacct.com\r\nConnection: close\r\n\r\n' 
-#targets['apache.cbox.biz'] = 'GET /httpd/httpd-2.4.20.tar.gz HTTP/1.1\r\nHost: apache.cbox.biz\r\nConnection: close\r\n\r\n'
+targets['download.microsoft.com'] = 'GET /download/2/9/4/29413F94-2ACF-496A-AD9C-8F43598510B7/EIE11_EN-US_MCM_WIN764.EXE HTTP/1.1\r\nHost: download.microsoft.com\r\nConnection: close\r\n\r\n' 
+targets['ubuntu.ipacct.com'] = 'GET /releases/trusty/ubuntu-14.04.4-server-amd64.iso HTTP/1.1\r\nHost: ubuntu.ipacct.com\r\nConnection: close\r\n\r\n' 
+targets['apache.cbox.biz'] = 'GET /httpd/httpd-2.4.20.tar.gz HTTP/1.1\r\nHost: apache.cbox.biz\r\nConnection: close\r\n\r\n'
 targets['appldnld.apple.com'] = 'GET /itunes12/031-51748-20160321-D6635716-EDF6-11E5-A6FC-DF14BE379832/iTunes12.3.3.dmg HTTP/1.1\r\nHost: appldnld.apple.com\r\nConnection: close\r\n\r\n'
 # skip this one is to slow
 #targets['ftp.freebsd.org'] = 'GET /pub/FreeBSD/releases/amd64/amd64/ISO-IMAGES/10.3/FreeBSD-10.3-RELEASE-amd64-dvd1.iso HTTP/1.1\r\nHost: ftp.freebsd.org\r\nConnection: close\r\n\r\n'
