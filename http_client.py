@@ -2,24 +2,17 @@ import socket
 import time
 import sys
 from collections import OrderedDict
-from optparse import OptionParser
-from filecmp import BUFSIZE
+import StringIO
 
 targets = OrderedDict()
-targets['download.microsoft.com'] = 'GET /download/2/9/4/29413F94-2ACF-496A-AD9C-8F43598510B7/EIE11_EN-US_MCM_WIN764.EXE HTTP/1.1\r\nHost: download.microsoft.com\r\nConnection: close\r\n\r\n' 
-targets['ubuntu.ipacct.com'] = 'GET /releases/trusty/ubuntu-14.04.4-server-amd64.iso HTTP/1.1\r\nHost: ubuntu.ipacct.com\r\nConnection: close\r\n\r\n' 
-targets['apache.cbox.biz'] = 'GET /httpd/httpd-2.4.20.tar.gz HTTP/1.1\r\nHost: apache.cbox.biz\r\nConnection: close\r\n\r\n'
-targets['appldnld.apple.com'] = 'GET /itunes12/031-51748-20160321-D6635716-EDF6-11E5-A6FC-DF14BE379832/iTunes12.3.3.dmg HTTP/1.1\r\nHost: appldnld.apple.com\r\nConnection: close\r\n\r\n'
-targets['ftp.freebsd.org'] = 'GET /pub/FreeBSD/releases/amd64/amd64/ISO-IMAGES/10.3/FreeBSD-10.3-RELEASE-amd64-dvd1.iso HTTP/1.1\r\nHost: ftp.freebsd.org\r\nConnection: close\r\n\r\n'
+#targets['download.microsoft.com'] = '/download/2/9/4/29413F94-2ACF-496A-AD9C-8F43598510B7/EIE11_EN-US_MCM_WIN764.EXE' 
+#targets['ubuntu.ipacct.com'] = '/releases/trusty/ubuntu-14.04.4-server-amd64.iso' 
+#targets['apache.cbox.biz'] = '/httpd/httpd-2.4.20.tar.gz'
+targets['appldnld.apple.com'] = '/itunes12/031-51748-20160321-D6635716-EDF6-11E5-A6FC-DF14BE379832/iTunes12.3.3.dmg'
+#targets['ftp.freebsd.org'] = '/pub/FreeBSD/releases/amd64/amd64/ISO-IMAGES/10.3/FreeBSD-10.3-RELEASE-amd64-dvd1.iso'
 
-parser = OptionParser()
-parser.add_option("--wait_timeout", help="sleep time seconds/milliseconds", type="float", dest="wait_time", metavar="seconds", default=0.2)
-parser.add_option("--buffer_size", help="receive socket buffer size in KBytes", type="int", dest="buf_size", metavar="KBytes", default=16)
-parser.add_option("--count_size", help="resize socket buffer on every count MBytes", type="int", dest="byte_count", metavar="MBytes", default=10)
-#parser.add_option("--twin", help="change TCP win field on every count MBytes", dest="twin", metavar="Bytes", default=0)
 
-(options, args) = parser.parse_args()
-
+# A minimal implementation of httlib2 to be used for the test cases
 class HTTPConnection:
     _http_vsn_str = 'HTTP/1.1'
     default_port = 80
@@ -78,17 +71,17 @@ class HTTPConnection:
         maxline = 65536
         response = ''
         if self.fp == None:
-            return response # not connected
+            return HTTPResponse(response) # not connected
         while True:
             line = self.fp.readline(maxline + 1)
             if len(line) > maxline:
                 print 'Warning line to long'
-                return response
+                return HTTPResponse(response)
             if not line:
                 print 'Empty line, connection dropped'
-                return response
+                return HTTPResponse(response)
             if line == '\r\n':
-                return response
+                return HTTPResponse(response)
             response += line
                 
     def _putheader(self, header, *values):
@@ -97,173 +90,163 @@ class HTTPConnection:
         hdr = '%s: %s' % (header, '\r\n\t'.join(values))
         self._buffer.append(hdr)
 
-def download(host, request):
-    print 'Connecting to', host
-    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    try:
-        total = 0
-        s.connect((host, 80))
-        # just for the stats
-        startbufsize = s.getsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF)
-        startwin = s.getsockopt(socket.IPPROTO_TCP, socket.TCP_WINDOW_CLAMP)
-        print 'Initial buf size=', startbufsize, 'Initial TCP win=', startwin
-        #s.setsockopt(socket.IPPROTO_TCP, socket.TCP_WINDOW_CLAMP, startwin * 2)
-        #print 'TCP win set to ', s.getsockopt(socket.IPPROTO_TCP, socket.TCP_WINDOW_CLAMP)
-        request = targets.get(host)
+class HTTPResponse:
+    def __init__(self, msg):
+        # from the Status-Line of the response
+        self.version = '' # HTTP-Version
+        self.status = ''  # Status-Code
+        self.reason = ''  # Reason-Phrase
+        self.headers = OrderedDict()
+        # Raw headers
+        self.msg = msg
+        self._read_msg()
 
-        if request is not None:
-            print 'Sending request'
-            s.sendall(request)
-            print 'Start download()'
-            start = time.time()
-            while 1:
-                data = s.recv(10000)
-                total += len(data)
-                if not data:
-                    print 'Received total', total ,'bytes from', host
-                    print 'Download completed in', time.time() - start, 'seconds'
-                    break
+    def _read_msg(self):
+        maxline = 65536
+        if self.msg:
+            buf = StringIO.StringIO(self.msg)
+            line = buf.readline(maxline + 1)
+            if line:
+                try:
+                    [self.version, self.status, self.reason] = line.split(None, 2)
+                except ValueError:
+                    try:
+                        [self.version, self.status] = line.split(None, 1)
+                        self.reason = ''
+                    except ValueError:
+                        self.version = ''
+                        self.status = ''
+            line = buf.readline(maxline + 1)
+            while line:
+                [header, value] = line.split(': ', 1)
+                line = buf.readline(maxline + 1)
+                self.headers[header] = value.rstrip()
             
-    except socket.error as msg:
-        s = None
-        print msg
-        sys.exit(1)
+                
 
-
-def download_ex_flowcontrol(host, request):
-    print 'Connecting to', host
-    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    try:
+# Test functions
+def download(host, resource):
+    print 'Start download()'
+    socket_timeout = 5.0
+    max_read = 10240
+    conn = HTTPConnection(host)
+    conn.connect()
+    print 'Receive buffer size=',conn.sock.getsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF)
+    print 'TCP Win size=', conn.sock.getsockopt(socket.IPPROTO_TCP, socket.TCP_WINDOW_CLAMP)
+    # lazy ranges
+    header_value_ranges = ('bytes=0-5000000', 'bytes=0-10000000', 'bytes=0-30000000', 'bytes=0-50000000', 'bytes=0-100000000')
+    for range in header_value_ranges:
+        headers = {'Connection': 'keep-alive',
+                   'Range': range,
+                   'Accept': '*/*'}
+        conn.request("GET", resource, headers)
+        response = conn.get_response()
+        if int(response.status) != 206:
+            print 'Error not 206 HTTP status code !!!', response.status
+            break
+        content_len = int(response.headers['Content-Length'])
+        print 'Downloading', content_len / 1000000, 'MBytes'
+        if not content_len:
+            print 'Error unable to get max Content-Length !!!'
+            break
         total = 0
-        s.connect((host, 80))
-        startbufsize = s.getsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF)
-        startwin = s.getsockopt(socket.IPPROTO_TCP, socket.TCP_WINDOW_CLAMP)
-        print 'Initial buf size=', startbufsize, 'Initial TCP win=', startwin
-        request = targets.get(host)
-        if request is not None:
-            print 'Sending request'
-            s.sendall(request)
-            print 'Start download_ex_flowcontrol()'
-            start = time.time()
-            size = 0
-            while 1:
-                data = s.recv(10000)
-                total += len(data)
-                size += len(data)
-                # on every M size do buffer resize
-                if size / (options.byte_count * 1000000) > 0:
-                    size = 0
-                    # monitor TCP window on every resize
-                    print 'TCP Win=', s.getsockopt(socket.IPPROTO_TCP, socket.TCP_WINDOW_CLAMP)
-                    #s.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, options.buf_size * 1000)
-                    
-                    # some experiments with the TCP window
-                    #s.setsockopt(socket.IPPROTO_TCP, socket.TCP_WINDOW_CLAMP, 1152)
-                    
-                    print 'buffer size set to', s.getsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF), 'TCP win is', s.getsockopt(socket.IPPROTO_TCP, socket.TCP_WINDOW_CLAMP)
-                    time.sleep(options.wait_time)
-                    # restore the original buffer size
-                    s.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, startbufsize)
-                    
-                    #s.setsockopt(socket.IPPROTO_TCP, socket.TCP_WINDOW_CLAMP, twin)
-                if not data:
-                    print 'Received total', total ,'bytes from', host
-                    print 'Download completed in', time.time() - start, 'seconds'
-                    break
-            s.close()
-    except socket.error as msg:
-        s = None
-        print msg
-        sys.exit(1)
+        start = time.time()
+        #conn.sock.settimeout(socket_timeout)
+        while 1:
+            data = conn.sock.recv(max_read)
+            total += len(data)
+            if not data:
+                print 'break data'
+                break
+            if total >= content_len:
+                print 'break len'
+                break
 
-'''
-conn = HTTPConnection("apache.cbox.biz")
-conn.connect()
-headers = {"Connection": "keep-alive",
-           "Range": "bytes=0-1024",
-           "Accept": "*/*"}
-conn.request("GET", "/httpd/httpd-2.4.20.tar.gz", headers)
-print conn.get_response()
-print conn.sock.recv(1024)
-
-headers = {"Range": "bytes=1024-2048",
-           "Accept": "*/*",
-           "Connection": "keep-alive"}
-conn.request("GET", "/httpd/httpd-2.4.20.tar.gz", headers)
-print conn.get_response()
-print conn.sock.recv(1024)
-
-conn.close()
-'''
-
-bufsize = 16000
-tcpwin = bufsize + 256
-conn = HTTPConnection("download.microsoft.com")
-
-#conn.connect()
-
-print 'Initial socket buffer is set to ', conn.sock.getsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF)
-conn.sock.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, bufsize)
-#conn.sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_WINDOW_CLAMP, tcpwin)
-print 'Set socket buffer size to ', conn.sock.getsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF)
-conn.connect()
-
-headers = {"Connection": "keep-alive",
-           "Range": "bytes=0-10000000",
-           "Accept": "*/*"}
-conn.request("GET", "/download/2/9/4/29413F94-2ACF-496A-AD9C-8F43598510B7/EIE11_EN-US_MCM_WIN764.EXE", headers)
-print conn.get_response()
-while 1:
-    time.sleep(0.2)
-    if len(conn.sock.recv(1024000, socket.MSG_PEEK)) >= bufsize:
-        time.sleep(0.2)
-        conn.sock.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 512000) # set a relative big buffer
-        print 'Reset buffer'
-        break
-
-total = 0
-while 1:
-    data = conn.sock.recv(8192)
-    total += len(data)
-    if len(data) < 8192:
-        print 'Received total', total ,'bytes'
-        break
-    if not data:
-        print 'Received total', total ,'bytes'
-        break
-
-conn.sock.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, bufsize)
-headers = {"Range": "bytes=10000001-30000000",
-           "Accept": "*/*",
-           "Connection": "close"}
-conn.request("GET", "/download/2/9/4/29413F94-2ACF-496A-AD9C-8F43598510B7/EIE11_EN-US_MCM_WIN764.EXE", headers)
-print conn.get_response()
-while 1:
-    time.sleep(0.2)
-    if len(conn.sock.recv(1024000, socket.MSG_PEEK)) >= bufsize:
-        time.sleep(0.2)
-        conn.sock.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 512000) # set a relative big buffer
-        print 'Reset buffer'
-        break
-
-total = 0
-while 1:
-    data = conn.sock.recv(8192)
-    total += len(data)
-    if len(data) < 8192:
-        print 'Received total', total ,'bytes'
-        break
-    if not data:
-        print 'Received total', total ,'bytes'
-        break
+        print 'Received ', total / 1000000 ,'MBytes from', host, ' completed in ', time.time() - start, ' seconds'
+        print 'Calculated speed', (total / 1000000 * 8) / (time.time() - start), 'Mbps'
 
 
-conn.close()
+def download_ex_flowcontrol_new(host, resource):
+    print 'Start download_ex_flowcontrol()'
+    socket_timeout = 5.0
+    max_read = 10240
+    max_msg_peek = max_read * 1000
+    large_bufsize = 512000
+    bufsize = 16000
+    tcpwin = bufsize + 256
+    verbose = 0
+    # time to sleep/simulate some work with the buffer
+    work_time = 0.1
+    conn = HTTPConnection(host)
 
-# 58082952 MS download size
+    # set receive buffer before connect for some test
+    # conn.sock.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, bufsize)
+    # no need to set TCP_WINDOW_CLAMP it's adjusted to the receive buffer
+    #conn.sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_WINDOW_CLAMP, 1024)
+    conn.connect()
+    
+    init_win = conn.sock.getsockopt(socket.IPPROTO_TCP, socket.TCP_WINDOW_CLAMP)
+    init_buf = conn.sock.getsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF)
+    
+    if verbose:
+        print 'Initial receive buffer set to', init_buf
+        print 'Initial TCP Win set to', init_win
 
-#for host in targets.keys():
-#request = targets.get(host)
+    # lazy ranges
+    #header_value_ranges = ('bytes=0-5000000', 'bytes=0-10000000', 'bytes=0-30000000', 'bytes=0-50000000', 'bytes=0-100000000')
+    header_value_ranges = ('bytes=0-50000', 'bytes=0-100000', 'bytes=0-300000', 'bytes=0-500000', 'bytes=0-1000000')
+    for range in header_value_ranges:
+        conn.sock.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, bufsize)
+        conn.sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_WINDOW_CLAMP, tcpwin)
+        if verbose:
+            print 'Receive buffer size set to', conn.sock.getsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF)
+            print 'TCP Win set to', conn.sock.getsockopt(socket.IPPROTO_TCP, socket.TCP_WINDOW_CLAMP)
 
-#download(host, request)
-#download_ex_flowcontrol(host, request)
+        headers = {'Connection': 'keep-alive',
+                   'Range': range,
+                   'Accept': '*/*'}
+        conn.request("GET", resource, headers)
+        response = conn.get_response()
+        if int(response.status) != 206:
+            print 'Error not 206 HTTP status code !!!', response.status
+            break
+        content_len = int(response.headers['Content-Length'])
+        print 'Downloading', content_len / 1000000, 'MBytes'
+        if not content_len:
+            print 'Error unable to get max Content-Length !!!'
+            break
+        total = 0
+        start = time.time()
+        # conn.sock.settimeout(socket_timeout)
+        while 1:
+            if len(conn.sock.recv(max_msg_peek, socket.MSG_PEEK)) >= bufsize:
+                # we've got data do some work here
+                time.sleep(work_time)
+                break
+        
+        # set a larger buffer to resume a normal download 
+        conn.sock.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, init_buf)
+        conn.sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_WINDOW_CLAMP, init_win)
+
+        if verbose:
+            print 'Resume download with Receive buffer set to', conn.sock.getsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF)
+            print 'Resume download with TCP Win', conn.sock.getsockopt(socket.IPPROTO_TCP, socket.TCP_WINDOW_CLAMP)
+        
+        while 1:
+            data = conn.sock.recv(max_read)
+            total += len(data)
+            if not data:
+                break
+            if total >= content_len:
+                break
+
+        print 'Received ', total / 1000000 ,'MBytes from', host, ' completed in ', time.time() - start, ' seconds'
+        print 'Calculated speed', (total / 1000000 * 8) / (time.time() - start), 'Mbps'
+    
+
+# Start tests
+for host in targets.keys():
+    resource = targets.get(host)
+    #download(host, resource)
+    download_ex_flowcontrol_new(host, resource)
+
